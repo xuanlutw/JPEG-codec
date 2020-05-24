@@ -502,9 +502,9 @@ BLOCK* read_BLOCK(JPEG_INFO* info, u8 chan_id) {
     DHT* DC_table = info->DC_DHT[info->CHAN[chan_id]->DC_table];
     DHT* AC_table = info->AC_DHT[info->CHAN[chan_id]->AC_table];
     BLOCK* obj = malloc(sizeof(BLOCK));
-    memset((*obj), 0, sizeof(double) * N_QUANT);
+    memset(obj, 0, sizeof(BLOCK));
     u8 symbol_len;
-    static double DC_bias[N_CHAN] = {0};
+    static i16 DC_bias[N_CHAN] = {0};
 
     // DC
     symbol_len = get_symbol_len(DC_table, info->fp);
@@ -544,7 +544,7 @@ void anti_zz(BLOCK* obj) {
     for (u8 i = 0; i < N_QUANT; ++i) {
         tmp[i] = (*obj)[zz_map[i]];
     }
-    memcpy(*obj, tmp, sizeof(double) * N_QUANT);
+    memcpy(obj, tmp, sizeof(BLOCK));
 }
 
 void anti_q(BLOCK* obj, DQT* quant) {
@@ -633,8 +633,8 @@ MCU* read_MCU(JPEG_INFO* info) {
         for (u8 i = 0; i < info->CHAN[chan]->N_BLOCK_MCU; ++i) {
             /*printf(">>%d %d\n", chan, i);*/
             obj->BLOCK[chan][i] = read_BLOCK(info, chan);
-            anti_zz(obj->BLOCK[chan][i]);
             anti_q(obj->BLOCK[chan][i], info->DQT[info->CHAN[chan]->DQT_ID]);
+            anti_zz(obj->BLOCK[chan][i]);
             iDCT(obj->BLOCK[chan][i]);
         }
     }
@@ -715,6 +715,13 @@ void anti_sampling (JPEG_INFO* info, JPEG_DATA* data) {
         }
         fprintf(fp, "\n");
     }
+    /*fprintf(fp, "P2\n%d %d\n255\n", info->width, info->height);*/
+    /*for (u16 i = 0; i < info->height; ++i) {*/
+        /*for (u16 j = 0; j < info->width; ++j) {*/
+            /*fprintf(fp, "%d ", bandpass(Y[i][j] + 128));*/
+        /*}*/
+        /*fprintf(fp, "\n");*/
+    /*}*/
 }
 
 void* load_jpeg (char* jpeg_path) {
