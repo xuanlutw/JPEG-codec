@@ -13,6 +13,7 @@
 # define M_DHT  0xC4
 # define M_DRI  0xDD
 # define M_SOS  0xDA
+# define M_COM  0xFE
 # define M_EOI  0xD9
 
 # define N_DQT   16
@@ -33,7 +34,7 @@ typedef uint64_t u64;
 typedef int8_t   i8;
 typedef int16_t  i16;
 
-typedef i16 BLOCK[N_QUANT];
+typedef double BLOCK[N_QUANT];
 
 typedef struct {
     BLOCK* BLOCK[N_CHAN][N_BLOCK];
@@ -350,14 +351,16 @@ void read_SOF0 (JPEG_INFO* info) {
             info->MCU_v_factor = obj->v_factor;
         if (obj->h_factor > info->MCU_h_factor)
             info->MCU_h_factor = obj->h_factor;
+        printf("factor %d %d\n", obj->v_factor, obj->h_factor);
     }
 
     info->MCU_NV = info->height / (info->MCU_v_factor * 8) + ((info->height % (info->MCU_v_factor * 8))? 1: 0);
     info->MCU_NH = info->width  / (info->MCU_h_factor * 8) + ((info->width  % (info->MCU_h_factor * 8))? 1: 0);
     printf("gCU = %d %d\n", info->MCU_NV, info->MCU_NH);
-    /*printf("%d\n", (info->height));*/
-    /*printf("%d\n", (info->width));*/
-    /*printf("%d\n", (info->n_color));*/
+    printf("gCU = %d %d\n", info->MCU_v_factor, info->MCU_h_factor);
+    printf("%d\n", (info->height));
+    printf("%d\n", (info->width));
+    printf("%d\n", (info->n_color));
 }
 
 void read_DHT (JPEG_INFO* info) {
@@ -427,6 +430,18 @@ void read_DRI (JPEG_INFO* info) {
     read_u16(&(info->DRI), info->fp);
 }
 
+void read_COM (JPEG_INFO* info) {
+    u16 len;
+    u8 c;
+    read_u16(&len, info->fp);
+    printf("===== Comment =====\n");
+    for (u16 i = 0; i < len - 2; ++i) {
+        read_u8(&c, info->fp);
+        printf("%c", c);
+    }
+    printf("===================\n");
+}
+
 void read_SOS (JPEG_INFO* info) {
     u16 len;
     read_u16(&len, info->fp);
@@ -487,12 +502,14 @@ BLOCK* read_BLOCK(JPEG_INFO* info, u8 chan_id) {
     DHT* DC_table = info->DC_DHT[info->CHAN[chan_id]->DC_table];
     DHT* AC_table = info->AC_DHT[info->CHAN[chan_id]->AC_table];
     BLOCK* obj = malloc(sizeof(BLOCK));
-    memset((*obj), 0, sizeof(i16) * N_QUANT);
+    memset((*obj), 0, sizeof(double) * N_QUANT);
     u8 symbol_len;
+    static double DC_bias[N_CHAN] = {0};
 
     // DC
     symbol_len = get_symbol_len(DC_table, info->fp);
-    (*obj)[0] = get_symbol(symbol_len, info->fp);
+    (*obj)[0] = get_symbol(symbol_len, info->fp) + DC_bias[chan_id];
+    DC_bias[chan_id] = (*obj)[0];
     /*printf(">> DC DONE<<\n");*/
 
     // AC
@@ -527,7 +544,7 @@ void anti_zz(BLOCK* obj) {
     for (u8 i = 0; i < N_QUANT; ++i) {
         tmp[i] = (*obj)[zz_map[i]];
     }
-    memcpy(*obj, tmp, sizeof(i16) * N_QUANT);
+    memcpy(*obj, tmp, sizeof(double) * N_QUANT);
 }
 
 void anti_q(BLOCK* obj, DQT* quant) {
@@ -582,6 +599,33 @@ void iDCT(BLOCK* obj) {
 }
 /******************************************************************************/
 
+void upsampling(MCU* obj, JPEG_INFO* info) {
+    for (u8 chan = 1; chan <= 3; ++chan) {
+        if ((info->CHAN[chan]->v_factor == info->MCU_v_factor) && (info->CHAN[chan]->h_factor == info->MCU_h_factor))
+            continue;
+        u8 MCU_N_BLOCK = info->MCU_v_factor * info->MCU_h_factor;
+        BLOCK* up[MCU_N_BLOCK];
+        for (u8 i = 0; i < MCU_N_BLOCK; ++i)
+            up[i] = malloc(sizeof(BLOCK));
+
+        for (u8 i = 0; i < info->MCU_v_factor; ++i) {
+            for (u8 j = 0; j < info->MCU_h_factor; ++j) {
+                for (u8 k = 0; k < 8; ++k) {
+                    for (u8 l = 0; l < 8; ++l) {
+                        u8 x = (8 * i + k) * info->CHAN[chan]->v_factor / info->MCU_v_factor;
+                        u8 y = (8 * j + l) * info->CHAN[chan]->h_factor / info->MCU_h_factor;
+                        (*up[info->MCU_h_factor * i + j])[8 * k + l] = \
+                            (*obj->BLOCK[chan][(x / 8) * info->CHAN[chan]->h_factor + (y / 8)])\
+                            [8 * (x % 8) + (y % 8)];
+                    }
+                }
+            }
+        }
+        for (u8 i = 0; i < MCU_N_BLOCK; ++i)
+            obj->BLOCK[chan][i] = up[i];
+    }
+}
+
 MCU* read_MCU(JPEG_INFO* info) {
     MCU* obj = malloc(sizeof(MCU));
     for (u8 chan = 1; chan <= 3; ++chan) { // TODO
@@ -590,8 +634,11 @@ MCU* read_MCU(JPEG_INFO* info) {
             /*printf(">>%d %d\n", chan, i);*/
             obj->BLOCK[chan][i] = read_BLOCK(info, chan);
             anti_zz(obj->BLOCK[chan][i]);
+            anti_q(obj->BLOCK[chan][i], info->DQT[info->CHAN[chan]->DQT_ID]);
+            iDCT(obj->BLOCK[chan][i]);
         }
     }
+    upsampling(obj, info);
     return obj;
 }
 
@@ -608,74 +655,62 @@ JPEG_DATA* read_JPEG_DATA(JPEG_INFO* info) {
     for (u16 i = 0; i < N_MCU; ++i) {
         obj->MCU[i] = read_MCU(info);
     }
-    for (u8 chan = 1; chan <= 3; ++chan) { // TODO
-        i16 pre = 0;
-        for (u16 i = 0; i < N_MCU; ++i) {
-            for (u8 j = 0; j < info->CHAN[chan]->N_BLOCK_MCU; ++j) {
-                pre = pre + (*obj->MCU[i]->BLOCK[chan][j])[0];
-                (*obj->MCU[i]->BLOCK[chan][j])[0] = pre;
-                anti_q(obj->MCU[i]->BLOCK[chan][j], info->DQT[info->CHAN[chan]->DQT_ID]);
-                iDCT(obj->MCU[i]->BLOCK[chan][j]);
-            }
-        }
-    }
     info->fp->skip_fl = 0;
     info->fp->len = (info->fp->len / 8) * 8; //ALIGN
     return obj;
 }
 
 u8 bandpass (double val) {
-    if (val > 255.0)
+    if (val >= 255.0)
         return 255;
-    else if (val < 0.0)
+    else if (val <= 0.0)
         return 0;
     else
-        return (u8) val;
+        return (u8) round(val);
 }
 
 void anti_sampling (JPEG_INFO* info, JPEG_DATA* data) {
     u16 N_MCU = info->MCU_NV * info->MCU_NH;
-    i16 Y[480][640];
-    i16 C1[480][640];
-    i16 C2[480][640];
-    u8 R[480][640];
-    u8 G[480][640];
-    u8 B[480][640];
-    /*for (u8 i = 0; i < info->MCU_NV; ++i) {*/
-        /*for (u8 j = 0; j < info->MCU_NH; ++j) {*/
+    double Y[(info->MCU_v_factor) * (info->MCU_NV) * 8][(info->MCU_h_factor) * (info->MCU_NH) * 8];
+    double C1[(info->MCU_v_factor) * (info->MCU_NV) * 8][(info->MCU_h_factor) * (info->MCU_NH) * 8];
+    double C2[(info->MCU_v_factor) * (info->MCU_NV) * 8][(info->MCU_h_factor) * (info->MCU_NH) * 8];
+    u8 R[(info->MCU_v_factor) * (info->MCU_NV) * 8][(info->MCU_h_factor) * (info->MCU_NH) * 8];
+    u8 G[(info->MCU_v_factor) * (info->MCU_NV) * 8][(info->MCU_h_factor) * (info->MCU_NH) * 8];
+    u8 B[(info->MCU_v_factor) * (info->MCU_NV) * 8][(info->MCU_h_factor) * (info->MCU_NH) * 8];
             /*for (u8 k = 0; k < info->CHAN[1]->v_factor; ++k) {*/
                 /*for (u8 l = 0; l < info->CHAN[1]->h_factor; ++l) {*/
                     /*for (u8 m = 0; m < 8; ++m) {*/
                         /*for (u8 n = 0; n < 8; ++n) {*/
-    for (u8 i = 0; i < 30; ++i) {
-        for (u8 j = 0; j < 40; ++j) {
-            for (u8 k = 0; k < 2; ++k) {
-                for (u8 l = 0; l < 2; ++l) {
+    for (u8 i = 0; i < info->MCU_NV; ++i) {
+        for (u8 j = 0; j < info->MCU_NH; ++j) {
+            for (u8 k = 0; k < info->MCU_v_factor; ++k) {
+                for (u8 l = 0; l < info->MCU_h_factor; ++l) {
                     for (u8 m = 0; m < 8; ++m) {
                         for (u8 n = 0; n < 8; ++n) {
-                            Y[16 * i + 8 * k + m][16 * j + 8 * l + n] = \
-                                (*data->MCU[40 * i + j]->BLOCK[1][2 * k + l])[8 * m + n];
-                            C1[16 * i + k + 2 * m][16 * j + l + 2 * n] = \
-                                (*data->MCU[40 * i + j]->BLOCK[2][0])[8 * m + n];
-                            C2[16 * i + k + 2 * m][16 * j + l + 2 * n] = \
-                                (*data->MCU[40 * i + j]->BLOCK[3][0])[8 * m + n];
+                            /*printf("%d %d %d %d %d %d\n", i, j, k, l, m, n);*/
+                            Y[8 * info->MCU_v_factor * i + 8 * k + m][8 * info->MCU_h_factor * j + 8 * l + n] = \
+                                (*data->MCU[info->MCU_NH * i + j]->BLOCK[1][info->MCU_h_factor * k + l])[8 * m + n];
+                            C1[8 * info->MCU_v_factor * i + 8 * k + m][8 * info->MCU_h_factor * j + 8 * l + n] = \
+                                (*data->MCU[info->MCU_NH * i + j]->BLOCK[2][info->MCU_h_factor * k + l])[8 * m + n];
+                            C2[8 * info->MCU_v_factor * i + 8 * k + m][8 * info->MCU_h_factor * j + 8 * l + n] = \
+                                (*data->MCU[info->MCU_NH * i + j]->BLOCK[3][info->MCU_h_factor * k + l])[8 * m + n];
                         }
                     }
                 }
             }
         }
     }
-    for (u16 i = 0; i < 480; ++i) {
-        for (u16 j = 0; j < 640; ++j) {
+    for (u16 i = 0; i < info->height; ++i) {
+        for (u16 j = 0; j < info->width; ++j) {
             R[i][j] = bandpass(1.0 * Y[i][j] + 1.402 * C2[i][j] + 128.0);
             G[i][j] = bandpass(1.0 * Y[i][j] - 0.34414 * C1[i][j] - 0.71414 * C2[i][j] + 128.0);
             B[i][j] = bandpass(1.0 * Y[i][j] + 1.772 * C1[i][j] + 128.0);
         }
     }
     FILE* fp = fopen("test.ppm", "w");
-    fprintf(fp, "P3\n640 480\n255\n");
-    for (u16 i = 0; i < 480; ++i) {
-        for (u16 j = 0; j < 640; ++j) {
+    fprintf(fp, "P3\n%d %d\n255\n", info->width, info->height);
+    for (u16 i = 0; i < info->height; ++i) {
+        for (u16 j = 0; j < info->width; ++j) {
             fprintf(fp, "%d %d %d ", R[i][j], G[i][j], B[i][j]);
         }
         fprintf(fp, "\n");
@@ -720,10 +755,15 @@ void* load_jpeg (char* jpeg_path) {
                     read_DRI(info);
                     printf("DRI at %d\n", counter);
                     break;
+                case M_COM:
+                    read_COM(info);
+                    printf("COM at %d\n", counter);
+                    break;
                 case M_SOS:
                     read_SOS(info);
+                    printf(">><<\n");
                     JPEG_DATA* data = read_JPEG_DATA(info);
-                    printf(">><<");
+                    printf(">><<\n");
                     anti_sampling(info, data);
                     /*read_BLOCK(info, 0);*/
                     break;
