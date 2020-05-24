@@ -31,8 +31,9 @@ typedef uint16_t u16;
 typedef uint32_t u32;
 typedef uint64_t u64;
 typedef int8_t   i8;
+typedef int16_t  i16;
 
-typedef i8 BLOCK[N_QUANT];
+typedef i16 BLOCK[N_QUANT];
 
 typedef struct {
     BLOCK* BLOCK[N_CHAN][N_BLOCK];
@@ -52,7 +53,7 @@ u8 read_BUFFER (u16* content, u8 len, F_BUFFER* buf) {
         exit(1);
     }
     if (buf->len >= len) {
-        *content = (u16)(buf->buffer >> (buf->len - len));
+        *content = (u16)((buf->buffer >> (buf->len - len)) & ((1 << len) - 1));
         buf->buffer &= ((1 << (buf->len - len)) - 1);
         buf->len -= len;
         return 1;
@@ -473,19 +474,20 @@ u8 get_symbol_len (DHT* DHT_table, F_BUFFER* buf) {
     return DHT_get_symbol(DHT_table);
 }
 
-i8 get_symbol (u8 len, F_BUFFER* buf) {
-    u16 c;
-    read_BUFFER(&c, len, buf);
+i16 get_symbol (u8 len, F_BUFFER* buf) {
+    i16 c;
+    read_BUFFER((u16*)&c, len, buf);
     if (c >> (len - 1))
-        return (i8)c;
+        return c;
     else 
-        return -((i8)c);
+        return -(c ^ ((1 << len) - 1));
 }
 
 BLOCK* read_BLOCK(JPEG_INFO* info, u8 chan_id) {
     DHT* DC_table = info->DC_DHT[info->CHAN[chan_id]->DC_table];
     DHT* AC_table = info->AC_DHT[info->CHAN[chan_id]->AC_table];
     BLOCK* obj = malloc(sizeof(BLOCK));
+    memset((*obj), 0, sizeof(i16) * N_QUANT);
     u8 symbol_len;
 
     // DC
@@ -522,14 +524,14 @@ void anti_zz(BLOCK* obj) {
         21, 34, 37, 47, 50, 56, 59, 61 , \
         35, 36, 48, 49, 57, 58, 62, 63 };
     BLOCK tmp;
-    for (int i = 0; i < N_QUANT; ++i) {
+    for (u8 i = 0; i < N_QUANT; ++i) {
         tmp[i] = (*obj)[zz_map[i]];
     }
-    memcpy(*obj, tmp, sizeof(i8) * N_QUANT);
+    memcpy(*obj, tmp, sizeof(i16) * N_QUANT);
 }
 
 void anti_q(BLOCK* obj, DQT* quant) {
-    for (int i = 0; i < N_QUANT; ++i) {
+    for (u8 i = 0; i < N_QUANT; ++i) {
         (*obj)[i] *= quant->quantizer[i];
     }
 }
@@ -607,11 +609,11 @@ JPEG_DATA* read_JPEG_DATA(JPEG_INFO* info) {
         obj->MCU[i] = read_MCU(info);
     }
     for (u8 chan = 1; chan <= 3; ++chan) { // TODO
-        i8 pre = 0;
+        i16 pre = 0;
         for (u16 i = 0; i < N_MCU; ++i) {
             for (u8 j = 0; j < info->CHAN[chan]->N_BLOCK_MCU; ++j) {
-                (*obj->MCU[i]->BLOCK[chan][j])[0] += pre;
-                pre = (*obj->MCU[i]->BLOCK[chan][j])[0];
+                pre = pre + (*obj->MCU[i]->BLOCK[chan][j])[0];
+                (*obj->MCU[i]->BLOCK[chan][j])[0] = pre;
                 anti_q(obj->MCU[i]->BLOCK[chan][j], info->DQT[info->CHAN[chan]->DQT_ID]);
                 iDCT(obj->MCU[i]->BLOCK[chan][j]);
             }
@@ -622,9 +624,23 @@ JPEG_DATA* read_JPEG_DATA(JPEG_INFO* info) {
     return obj;
 }
 
+u8 bandpass (double val) {
+    if (val > 255.0)
+        return 255;
+    else if (val < 0.0)
+        return 0;
+    else
+        return (u8) val;
+}
+
 void anti_sampling (JPEG_INFO* info, JPEG_DATA* data) {
     u16 N_MCU = info->MCU_NV * info->MCU_NH;
-    u8 Y[480][640];
+    i16 Y[480][640];
+    i16 C1[480][640];
+    i16 C2[480][640];
+    u8 R[480][640];
+    u8 G[480][640];
+    u8 B[480][640];
     /*for (u8 i = 0; i < info->MCU_NV; ++i) {*/
         /*for (u8 j = 0; j < info->MCU_NH; ++j) {*/
             /*for (u8 k = 0; k < info->CHAN[1]->v_factor; ++k) {*/
@@ -638,20 +654,31 @@ void anti_sampling (JPEG_INFO* info, JPEG_DATA* data) {
                     for (u8 m = 0; m < 8; ++m) {
                         for (u8 n = 0; n < 8; ++n) {
                             Y[16 * i + 8 * k + m][16 * j + 8 * l + n] = \
-                                (*data->MCU[40 * i + j]->BLOCK[1][2 * k + l])[8 * m + n] + 128;
+                                (*data->MCU[40 * i + j]->BLOCK[1][2 * k + l])[8 * m + n];
+                            C1[16 * i + k + 2 * m][16 * j + l + 2 * n] = \
+                                (*data->MCU[40 * i + j]->BLOCK[2][0])[8 * m + n];
+                            C2[16 * i + k + 2 * m][16 * j + l + 2 * n] = \
+                                (*data->MCU[40 * i + j]->BLOCK[3][0])[8 * m + n];
                         }
                     }
                 }
             }
         }
     }
-    FILE* fp = fopen("test.pgm", "w");
-    fprintf(fp, "P2\n640 480\n255\n");
     for (u16 i = 0; i < 480; ++i) {
         for (u16 j = 0; j < 640; ++j) {
-            fprintf(fp, "%d ", Y[i][j]);
+            R[i][j] = bandpass(1.0 * Y[i][j] + 1.402 * C2[i][j] + 128.0);
+            G[i][j] = bandpass(1.0 * Y[i][j] - 0.34414 * C1[i][j] - 0.71414 * C2[i][j] + 128.0);
+            B[i][j] = bandpass(1.0 * Y[i][j] + 1.772 * C1[i][j] + 128.0);
         }
-    fprintf(fp, "\n");
+    }
+    FILE* fp = fopen("test.ppm", "w");
+    fprintf(fp, "P3\n640 480\n255\n");
+    for (u16 i = 0; i < 480; ++i) {
+        for (u16 j = 0; j < 640; ++j) {
+            fprintf(fp, "%d %d %d ", R[i][j], G[i][j], B[i][j]);
+        }
+        fprintf(fp, "\n");
     }
 }
 
