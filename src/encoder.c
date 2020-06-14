@@ -573,8 +573,10 @@ void write_JPEG_data (RGB* img, u8 Y_v_rate, u8 Y_h_rate, u8 C_v_rate, u8 C_h_ra
     u16 width_ext  = N_MCU_h * 8 * MCU_h_rate;
     u16 height_ext = N_MCU_v * 8 * MCU_v_rate;
 
+    /*printf("%d %d %d %d\n", img->width, img->height, width_ext, height_ext);*/
+
     u16 N_BLOCK_v = height_ext / 8;
-    u16 N_BLOCK_h = width_ext / 8;
+    u16 N_BLOCK_h = width_ext  / 8;
 
     u8 Y_v_fact = MCU_v_rate / Y_v_rate;
     u8 Y_h_fact = MCU_h_rate / Y_h_rate;
@@ -594,11 +596,11 @@ void write_JPEG_data (RGB* img, u8 Y_v_rate, u8 Y_h_rate, u8 C_v_rate, u8 C_h_ra
     DHT_r* DHT_r_AC_C = init_DHT_r(&pre_DHT_AC_C);
 
     // Color conversion
-    for (u16 i = 0; i < width_ext; ++i)
-        for (u16 j = 0; j < height_ext; ++j) {
-            u32 index = idx(i, j, img->width);
+    for (u16 i = 0; i < height_ext; ++i)
+        for (u16 j = 0; j < width_ext; ++j) {
+            u32 index     = idx(i, j, img->width);
             u32 index_ext = idx(i, j, width_ext);
-            if (i < img->width && j < img->height) {
+            if (i < img->height && j < img->width) {
                 Y[index_ext]  = 0.299 * ((double)img->R[index] - 128.) + \
                                 0.587 * ((double)img->G[index] - 128.) + \
                                 0.114 * ((double)img->B[index] - 128.);
