@@ -1007,5 +1007,5 @@ int main (int argc, char* argv[]) {
     JPEG_INFO* info = read_JPEG_INFO(argv[1]);
     RGB* img = read_JPEG_img(info);
     write_bmp(argv[2], img);
-    write_ppm(img);
+    /*write_ppm(img);*/
 }
