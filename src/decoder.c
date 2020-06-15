@@ -260,7 +260,7 @@ u8 read_BUFFER (u16* content, u8 len, F_BUFFER* buf) {
         buf->len += 8;
         if (buf->skip_fl == FL_SKIP && c == 0xFF) {
             fread(&c, sizeof(u8), 1, buf->fp);
-            check(c != 0x00, "0xFF coding error\n");
+            /*check(c != 0x00, "0xFF coding error\n");*/
         }
         return read_BUFFER(content, len, buf);
     }
@@ -879,7 +879,7 @@ void read_COM (JPEG_INFO* info) {
         read_u8(&c, info->fp);
         printf("%c", c);
     }
-    printf("===================\n");
+    printf("\n===================\n");
 }
 
 void read_SOS (JPEG_INFO* info) {
