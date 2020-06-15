@@ -221,6 +221,8 @@ RGB* read_bmp (char* filename) {
     u32 width;
     u32 height;
     u32 padding_size;
+    u32 is_compress;
+    u32 version;
 
     // File Header
     c1 = read_u8(fp);       // Magic Number
@@ -232,14 +234,17 @@ RGB* read_bmp (char* filename) {
     check(c2 != 'M', "Wrong BMP file format");
 
     // Info header
-    read_u32(fp);               // Ifo header size
+    version = read_u32(fp);     // Info header size
     width  = read_u32(fp);      // Width
     height = read_u32(fp);      // Height
     read_u16(fp);               // # planes
     bits = read_u16(fp);        // # bits per pixel
+    is_compress = read_u32(fp); // # bits per pixel
 
     // Check info
     check(bits != 24 && bits != 32, "BMP bits per pixel should be 24 or 32!");
+    check(is_compress != 0, "BMP should not compress");
+    check(version != 40, "Only accept BMP version BITMAPINFOHEADER!");
     if (bits == 24)
         padding_size = ((width * 3 + 3) / 4) * 4 - width * 3;
     else if (bits == 32)
@@ -546,7 +551,7 @@ void write_block(i16* img, u8 num_chn, u16 base_x, u16 base_y, u16 width, F_BUFF
         zero_count = 0;
     }
     // Truncate zero
-    if (last_non_zero != N_QUANT)
+    if (last_non_zero != N_QUANT - 1)
         write_BUFFER(DHT_r_AC->content[0x00], DHT_r_AC->len[0x00], fp);
 }
 
@@ -617,6 +622,17 @@ void write_JPEG_data (RGB* img, u8 Y_v_rate, u8 Y_h_rate, u8 C_v_rate, u8 C_h_ra
                 Cr[index_ext] = 0;
             }
         }
+
+    // TEST
+    /*FILE* fpp = fopen("test_YCC.ppm", "w");*/
+    /*fprintf(fpp, "P3\n%d %d\n255\n", width_ext, height_ext);*/
+    /*for (u16 i = 0; i < height_ext; ++i) {*/
+        /*for (u16 j = 0; j < width_ext; ++j) {*/
+            /*u32 index = idx(i, j, width_ext);*/
+            /*fprintf(fpp, "%d %d %d ", (int)Y[index] + 128, (int)Cb[index] + 128, (int)Cr[index] + 128);*/
+        /*}*/
+        /*fprintf(fpp, "\n");*/
+    /*}*/
 
     // Subsampling
     subsampling(Y,  width_ext, height_ext, Y_v_fact, Y_h_fact);
@@ -775,7 +791,7 @@ int main (int argc, char* argv[]) {
     u8 C_h_rate = 1;
 
     write_JPEG_INFO(argv[2], img,Y_v_rate, Y_h_rate, C_v_rate, C_h_rate);
-    /*write_ppm(img);*/
+    write_ppm(img);
 
     return 0;
 }
