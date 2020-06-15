@@ -791,7 +791,7 @@ int main (int argc, char* argv[]) {
     u8 C_h_rate = 1;
 
     write_JPEG_INFO(argv[2], img,Y_v_rate, Y_h_rate, C_v_rate, C_h_rate);
-    write_ppm(img);
+    /*write_ppm(img);*/
 
     return 0;
 }
