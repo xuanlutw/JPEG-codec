@@ -58,6 +58,9 @@ typedef int64_t  i64;
 # define TYPE_DC 0
 # define TYPE_AC 1
 
+# define TYPE_R 0
+# define TYPE_W 1
+
 # define FL_SKIP 1
 # define FL_NSKIP 0
 

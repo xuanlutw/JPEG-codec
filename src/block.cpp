@@ -16,6 +16,7 @@ Block::Block (Stream* vs, Huffman* DC, Huffman* AC, u16* q, i16* dc_pred) {
         i += AC->R;
         data[i] = AC->S;
     }
+    return;
     //this->print();
 
     this->inverse_q(q);
@@ -26,6 +27,17 @@ Block::Block (Stream* vs, Huffman* DC, Huffman* AC, u16* q, i16* dc_pred) {
 
     this->inverse_DCT();
     //this->print();
+}
+
+Block::Block (Stream* vs, Stream* os, Huffman* DC, Huffman* AC) {
+    DC->trans(vs, os);
+    for (u8 i = 1; i < 64; ++i) {
+        AC->trans(vs, os);
+        if (AC->R == 0x0 && AC->S == 0x0)
+            break;
+        i += AC->R;
+    }
+    return;
 }
 
 void Block::inverse_scan () {

@@ -10,6 +10,7 @@ class Picture {
         void read_DRI  (Stream* vs);
         void read_SOS  (Stream* vs);
         void decode    (Stream* vs);
+        void trans     (Stream* vs, Stream* os);
         void dump_ppm  (char* ppm_name);
         DHT* H;
         DQT* Q;

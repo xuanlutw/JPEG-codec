@@ -77,6 +77,7 @@ void Picture::decode (Stream* vs) {
                                         this->H->ac[this->ac_id[chan]], \
                                         this->Q->q[this->q_id[chan]],    \
                                         dc_pred + chan);
+                        continue;
                         // Copy
                         for (u8 y = 0; y < 8; ++y)
                             for (u8 x = 0; x < 8; ++x)
@@ -86,4 +87,22 @@ void Picture::decode (Stream* vs) {
                                     = block.data[idx(y, x)];
                     }
     vs->set_skip_fl(FL_NSKIP);
+}
+
+void Picture::trans (Stream* vs, Stream* os) {
+    vs->set_skip_fl(FL_SKIP);
+    os->set_skip_fl(FL_SKIP);
+    // For each mcu
+    for (u32 my = 0; my < this->v_size_ext / this->mcu_v_size / 8; ++my)
+        for (u32 mx = 0; mx < this->h_size_ext / this->mcu_h_size / 8; ++mx)
+            // For each channel
+            for (u8 chan = 1; chan < 4; ++chan)
+                // For each block
+                for (u8 by = 0; by < this->v_fact[chan]; ++by)
+                    for (u8 bx = 0; bx < this->h_fact[chan]; ++bx) {
+                        Block block(vs, os, this->H->dc[this->dc_id[chan]], \
+                                            this->H->ac[this->ac_id[chan]]);
+                    }
+    vs->set_skip_fl(FL_NSKIP);
+    os->set_skip_fl(FL_NSKIP);
 }

@@ -6,6 +6,7 @@
 class Block {
     public:
         Block (Stream* vs, Huffman* DC, Huffman* AC, u16* q, i16* dc_pred);
+        Block (Stream* vs, Stream* os, Huffman* DC, Huffman* AC);
         void inverse_scan ();
         void inverse_q (u16* q);
         void inverse_DCT ();        // 2D IDCT
