@@ -6,7 +6,7 @@ Header::Header (Stream* vs, u8 type) {
     this->type = type;
     this->len  = vs->read_u16() - 2;
     this->data = new u8[this->len];
-    for (u8 i = 0; i < this->len; ++i)
+    for (u16 i = 0; i < this->len; ++i)
         this->data[i] = vs->read_u8();
 }
 
@@ -17,7 +17,7 @@ Header::~Header () {
 void Header::write (Stream* os) {
     os->write_marker(this->type);
     os->write_u16(this->len + 2);
-    for (u8 i = 0; i < this->len; ++i)
+    for (u16 i = 0; i < this->len; ++i)
         os->write_u8(this->data[i]);
 }
 

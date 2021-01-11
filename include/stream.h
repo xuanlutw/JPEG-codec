@@ -15,6 +15,7 @@ class Stream {
         void put (u32 content, u8 len);     // Put some bits back into buffer
         u8   next_marker ();                // Go to next start code and return it       
         void set_skip_fl (bool fl);         // Set the flag of skip 0xFFFF
+        u32  get_size ();
     private:
         FILE* fp;
         u8    type;

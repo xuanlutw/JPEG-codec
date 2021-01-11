@@ -136,3 +136,11 @@ void Stream::set_skip_fl (bool fl) {
     this->skip_fl =fl;
     return;
 }
+
+u32 Stream::get_size () {
+    u32 pos_now = ftell(this->fp);
+    fseek(this->fp, 0, SEEK_END);
+    u32 pos_size = ftell(this->fp);
+    fseek(this->fp, pos_now, SEEK_SET);
+    return pos_size;
+}

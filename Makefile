@@ -1,4 +1,4 @@
-EXE = decoder
+EXE = compressor
 
 SRC_DIR = src
 OBJ_DIR = obj
